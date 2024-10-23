@@ -1,0 +1,315 @@
+<div id="game-container">
+  <canvas id="life" width="500" height="500"></canvas>
+
+  <div id="controls">
+    <button id="start">Start</button>
+    <button id="stop">Stop</button>
+    <button id="restart">Restart</button>
+
+    <label for="framerate">Frame Rate:</label>
+    <input id="framerate" type="number" value="15" min="10" max="30" step="1" />
+
+    <label for="fade">Fade Duration:</label>
+    <input id="fade" type="number" value="50" min="1" max="100" step="1" />
+  </div>
+</div>
+
+<script>
+  class GameOfLife {
+    private canvas: HTMLCanvasElement;
+    private ctx: CanvasRenderingContext2D;
+    private grid: number[][];
+    private fadeGrid: number[][];
+    private rows: number;
+    private cols: number;
+    private cellSize: number;
+    private running: boolean;
+    private frameRate: number;
+    private fadeDuration: number; // in seconds
+    private fadeDecrement: number;
+    private timer: number | undefined;
+
+    constructor(
+      canvasId: string,
+      cellSize: number = 10,
+      frameRate: number = 10,
+      fadeDuration: number = 1 // default fade duration in seconds
+    ) {
+      this.canvas = document.getElementById(canvasId) as HTMLCanvasElement;
+      this.ctx = this.canvas.getContext("2d")!;
+      this.cellSize = cellSize;
+      this.frameRate = frameRate;
+      this.fadeDuration = fadeDuration;
+      this.fadeDecrement = 1 / (this.frameRate * this.fadeDuration);
+      this.running = false;
+
+      this.cols = Math.floor(this.canvas.width / this.cellSize);
+      this.rows = Math.floor(this.canvas.height / this.cellSize);
+
+      this.grid = this.createGrid();
+      this.fadeGrid = this.createGrid(); // Initialize fadeGrid
+      this.initGrid();
+      this.drawGrid();
+    }
+
+    private createGrid(): number[][] {
+      let grid = new Array(this.rows);
+      for (let row = 0; row < this.rows; row++) {
+        grid[row] = new Array(this.cols).fill(0);
+      }
+      return grid;
+    }
+
+    private initGrid(): void {
+      // Initialize the grid with random alive and dead cells
+      for (let row = 0; row < this.rows; row++) {
+        for (let col = 0; col < this.cols; col++) {
+          this.grid[row][col] = Math.random() > 0.5 ? 1 : 0;
+          this.fadeGrid[row][col] = 0; // Reset fadeGrid
+        }
+      }
+    }
+
+    private drawGrid(): void {
+      // Clear the canvas
+      this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+      // Draw each cell
+      for (let row = 0; row < this.rows; row++) {
+        for (let col = 0; col < this.cols; col++) {
+          if (this.grid[row][col] === 1) {
+            // Alive cell
+            this.ctx.fillStyle = "black";
+            this.ctx.fillRect(
+              col * this.cellSize,
+              row * this.cellSize,
+              this.cellSize,
+              this.cellSize
+            );
+          } else if (this.fadeGrid[row][col] > 0) {
+            // Fading cell
+            let alpha = this.fadeGrid[row][col];
+            this.ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
+            this.ctx.fillRect(
+              col * this.cellSize,
+              row * this.cellSize,
+              this.cellSize,
+              this.cellSize
+            );
+          }
+          // Dead cell with no fade effect, do not draw (canvas background is white)
+        }
+      }
+    }
+
+    private updateGrid(): void {
+      let newGrid = this.createGrid();
+
+      for (let row = 0; row < this.rows; row++) {
+        for (let col = 0; col < this.cols; col++) {
+          let liveNeighbors = this.countLiveNeighbors(row, col);
+
+          if (this.grid[row][col] === 1) {
+            // Alive cell
+            if (liveNeighbors < 2 || liveNeighbors > 3) {
+              newGrid[row][col] = 0; // Cell dies
+              this.fadeGrid[row][col] = 1.0; // Start fade-out
+            } else {
+              newGrid[row][col] = 1; // Cell lives
+              this.fadeGrid[row][col] = 0; // Reset fade
+            }
+          } else {
+            // Dead cell
+            if (liveNeighbors === 3) {
+              newGrid[row][col] = 1; // Cell becomes alive
+              this.fadeGrid[row][col] = 0; // Reset fade
+            } else {
+              newGrid[row][col] = 0; // Cell remains dead
+              if (this.fadeGrid[row][col] > 0) {
+                // Decrease fade value
+                this.fadeGrid[row][col] -= this.fadeDecrement;
+                if (this.fadeGrid[row][col] < 0) {
+                  this.fadeGrid[row][col] = 0;
+                }
+              }
+            }
+          }
+        }
+      }
+
+      this.grid = newGrid;
+    }
+
+    private countLiveNeighbors(row: number, col: number): number {
+      let liveNeighbors = 0;
+      for (let i = -1; i <= 1; i++) {
+        for (let j = -1; j <= 1; j++) {
+          if (i === 0 && j === 0) continue; // Skip the current cell
+          let newRow = row + i;
+          let newCol = col + j;
+
+          // Wrap around edges (toroidal array)
+          if (newRow < 0) newRow = this.rows - 1;
+          else if (newRow >= this.rows) newRow = 0;
+
+          if (newCol < 0) newCol = this.cols - 1;
+          else if (newCol >= this.cols) newCol = 0;
+
+          liveNeighbors += this.grid[newRow][newCol];
+        }
+      }
+      return liveNeighbors;
+    }
+
+    public start(): void {
+      if (!this.running) {
+        this.running = true;
+        this.timer = setInterval(() => {
+          this.updateGrid();
+          this.drawGrid();
+        }, 1000 / this.frameRate);
+      }
+    }
+
+    public stop(): void {
+      if (this.running) {
+        this.running = false;
+        clearInterval(this.timer);
+      }
+    }
+
+    public restart(): void {
+      this.stop();
+      this.initGrid();
+      this.drawGrid();
+    }
+
+    public setFrameRate(fps: number): void {
+      this.frameRate = fps;
+      this.fadeDecrement = 1 / (this.frameRate * this.fadeDuration); // Recalculate fade decrement
+      if (this.running) {
+        this.stop();
+        this.start();
+      }
+    }
+
+    // Add the setFadeDuration method
+    public setFadeDuration(percentage: number): void {
+      // Map percentage (1-100) to fade duration (0.1s to 2s)
+      const minFade = 0.1; // Minimum fade duration in seconds
+      const maxFade = 2.0; // Maximum fade duration in seconds
+
+      // Ensure the percentage is within bounds
+      percentage = Math.min(Math.max(percentage, 1), 100);
+
+      // Calculate fade duration
+      this.fadeDuration =
+        minFade + ((maxFade - minFade) * (percentage - 1)) / 99;
+
+      // Recalculate fade decrement
+      this.fadeDecrement = 1 / (this.frameRate * this.fadeDuration);
+    }
+  }
+
+  // Create an instance of the GameOfLife class
+  const game = new GameOfLife("life", 5, 15);
+
+  // Get references to the DOM elements
+  const startButton = document.getElementById("start") as HTMLButtonElement;
+  const stopButton = document.getElementById("stop") as HTMLButtonElement;
+  const restartButton = document.getElementById("restart") as HTMLButtonElement;
+  const frameRateInput = document.getElementById(
+    "framerate"
+  ) as HTMLInputElement;
+  const fadeInput = document.getElementById("fade") as HTMLInputElement;
+
+  // Add event listeners to the buttons and input fields
+  startButton.addEventListener("click", () => {
+    game.start();
+  });
+
+  stopButton.addEventListener("click", () => {
+    game.stop();
+  });
+
+  restartButton.addEventListener("click", () => {
+    game.restart();
+  });
+
+  frameRateInput.addEventListener("change", () => {
+    const fps = parseInt(frameRateInput.value, 10);
+    game.setFrameRate(fps);
+  });
+
+  // Initialize fade duration based on input value
+  const initialFadePercentage = parseInt(fadeInput.value, 10);
+  game.setFadeDuration(initialFadePercentage);
+
+  // Add event listener for fade duration input
+  fadeInput.addEventListener("change", () => {
+    const percentage = parseInt(fadeInput.value, 10);
+    game.setFadeDuration(percentage);
+  });
+</script>
+
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    background-color: #f0f0f0;
+    margin: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  #game-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  #life {
+    border: 2px solid #333;
+    background-color: #fff;
+    margin-bottom: 20px;
+  }
+
+  #controls {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  #controls button,
+  #controls input {
+    margin: 5px;
+    padding: 10px 15px;
+    font-size: 16px;
+    border: none;
+    outline: none;
+  }
+
+  #controls button {
+    background-color: #007bff;
+    color: #fff;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+  }
+
+  #controls button:hover {
+    background-color: #0056b3;
+  }
+
+  #controls input[type="number"] {
+    width: 70px;
+    text-align: center;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+  }
+
+  label {
+    margin: 5px;
+    font-size: 16px;
+  }
+</style>
